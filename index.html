@@ -1578,9 +1578,13 @@ async function callClaudeAPI(userText) {
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-5-20251001',
       max_tokens: 1000,
       system: SYSTEM_PROMPT,
       messages: conversationHistory
@@ -1588,7 +1592,8 @@ async function callClaudeAPI(userText) {
   });
 
   if (!response.ok) {
-    throw new Error('API request failed: ' + response.status);
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData?.error?.message || 'API error ' + response.status);
   }
 
   const data = await response.json();
@@ -1625,8 +1630,20 @@ async function sendMessage() {
     appendMessage(reply, 'bot');
   } catch (err) {
     removeTyping();
-    appendMessage("I'm here and listening. Could you give me a moment and try again?", 'bot');
     console.error('Claude API error:', err);
+    // Show user-friendly error with the actual message
+    const errMsg = err.message || '';
+    if (errMsg.includes('401') || errMsg.toLowerCase().includes('auth')) {
+      appendMessage("⚠️ Authentication error — please make sure your API key is set up correctly.", 'bot');
+    } else if (errMsg.includes('429') || errMsg.toLowerCase().includes('rate')) {
+      appendMessage("⏳ I'm getting a lot of messages right now. Please wait a moment and try again.", 'bot');
+    } else if (errMsg.toLowerCase().includes('cors') || errMsg.toLowerCase().includes('network') || errMsg.toLowerCase().includes('failed to fetch')) {
+      appendMessage("🌐 Connection issue — this app needs to be opened from the Claude.ai artifacts environment to work properly.", 'bot');
+    } else {
+      appendMessage("I'm having a moment of trouble connecting. Please try sending your message again.", 'bot');
+    }
+    // Restore the user's message so they don't lose it
+    input.value = text;
   } finally {
     input.disabled = false;
     sendBtn.disabled = false;
