@@ -38,7 +38,6 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
-  html.modal-open, body.modal-open { overflow: hidden; }
 
   body {
     font-family: 'Plus Jakarta Sans', sans-serif;
@@ -146,8 +145,7 @@
   .auth-overlay {
     display: none; position: fixed; inset: 0; z-index: 1000;
     background: rgba(9,29,50,0.65); backdrop-filter: blur(8px);
-    align-items: flex-start; justify-content: center;
-    padding: 1.5rem 1rem 2rem; overflow-y: auto;
+    align-items: center; justify-content: center; padding: 1rem;
   }
   .auth-overlay.open { display: flex; animation: fadeInOverlay .3s ease; }
   @keyframes fadeInOverlay { from{opacity:0} to{opacity:1} }
@@ -155,9 +153,9 @@
   .auth-modal {
     background: var(--surface); border-radius: 24px;
     box-shadow: 0 24px 80px rgba(9,29,50,0.3);
-    width: 100%; max-width: 460px; overflow: visible;
+    width: 100%; max-width: 460px; overflow: hidden;
     animation: slideUp .35s cubic-bezier(.34,1.56,.64,1);
-    position: relative; margin: auto; flex-shrink: 0;
+    position: relative;
   }
   @keyframes slideUp { from{opacity:0;transform:translateY(30px) scale(.97)} to{opacity:1;transform:translateY(0) scale(1)} }
 
@@ -173,7 +171,6 @@
   .auth-header {
     background: linear-gradient(135deg, var(--primary-dark), var(--primary) 60%, #0e7a70);
     padding: 2.25rem 2rem 1.75rem; text-align: center; position: relative; overflow: hidden;
-    border-radius: 24px 24px 0 0;
   }
   .auth-header::before {
     content: ''; position: absolute; inset: 0; opacity: .06;
@@ -203,8 +200,8 @@
   .auth-tab.active { color: var(--primary); border-bottom-color: var(--primary); background: var(--surface); }
   .auth-tab:hover:not(.active) { color: var(--text2); background: var(--surface3); }
 
-  .auth-body { padding: 1.75rem 2rem 2rem; overflow: visible; }
-  .auth-form { display: flex; flex-direction: column; gap: 14px; padding-bottom: 0.5rem; }
+  .auth-body { padding: 1.75rem 2rem 2rem; }
+  .auth-form { display: flex; flex-direction: column; gap: 14px; }
 
   .form-group { display: flex; flex-direction: column; gap: 6px; }
   .form-label { font-size: 13px; font-weight: 600; color: var(--text2); }
@@ -1277,7 +1274,6 @@ function openAuth(tab = 'login') {
 }
 
 function closeAuth() {
-  document.body.classList.remove('modal-open');
   document.getElementById('auth-overlay').classList.remove('open');
   document.body.style.overflow = '';
   clearErrors();
@@ -1396,9 +1392,6 @@ function handleRegister(e) {
 function handleLogout() {
   closeDropdown();
   currentUser = null;
-  conversationHistory = [];
-  messageCount = 0;
-  riskScore = 18;
   localStorage.removeItem('mb_session');
   resetUIForGuest();
   showToast('info', '👋 You\'ve been signed out safely. Take care!');
@@ -1492,40 +1485,33 @@ function showToast(type, msg) {
   setTimeout(() => toast.remove(), 4500);
 }
 
-/* ── CHAT ENGINE (Claude API-powered) ── */
+/* ── CHAT ENGINE (Claude AI powered) ── */
 const DISTRESS_KEYWORDS = [
   'sad','depressed','hopeless','worthless','lonely','anxious','panic','overwhelmed',
   'tired','exhausted','stressed','cant sleep','not eating','empty','numb','scared',
-  'crying','hate myself','give up','pointless','nobody cares','alone','failing','desperate',
-  'suicid','self-harm','hurt myself','end it','no reason to live'
+  'crying','hate myself','give up','pointless','nobody cares','alone','failing','desperate'
 ];
 
 let conversationHistory = [];
 let messageCount = 0;
 let riskScore = 18;
-let isWaitingForReply = false;
 
-const SYSTEM_PROMPT = `You are MindBridge, a warm, empathetic, and thoughtful AI mental health companion. Your role is to provide compassionate emotional support, active listening, and gentle guidance.
-
-Core principles:
-- Respond naturally and conversationally — never sound scripted or robotic
-- Every response must be uniquely tailored to what the person just said
-- Show genuine curiosity about their specific situation
-- Vary your sentence structure, length, and tone naturally
-- Ask only ONE follow-up question per message, if any
-- Be warm and human — use natural language, not clinical terms
-- When someone shares something difficult, acknowledge their specific feelings first before offering any perspective
-- Never give the same type of response twice in a row
-- If someone mentions crisis or self-harm, gently but clearly provide the iCall India helpline: 9152987821
-
-Tone: Warm, present, non-judgmental. Like a trusted friend who happens to understand mental health deeply.
-
-Important: Keep responses concise (2-4 sentences typically). Don't over-explain. Let the conversation breathe.`;
+const SYSTEM_PROMPT = `You are MindBridge AI, a compassionate and empathetic mental health companion. Your role is to:
+- Listen actively and respond with genuine empathy and warmth
+- Ask thoughtful follow-up questions to better understand the user's situation
+- Provide emotionally supportive, non-judgmental responses tailored to what the user actually said
+- Gently suggest professional help when distress signals are high
+- Use a calm, caring, conversational tone — never clinical or robotic
+- Keep responses concise (2–4 sentences) unless more depth is clearly needed
+- NEVER give the same generic response twice — always respond specifically to what the user shared
+- If crisis indicators appear (self-harm, suicidal thoughts), always recommend iCall India: 9152987821 or Vandrevala Foundation: 1860-2662-345
+- You are designed for users in India; be culturally sensitive
+- Do not diagnose. You are a supportive companion, not a therapist.`;
 
 function detectRisk(text) {
   const lower = text.toLowerCase();
   let increase = 0;
-  DISTRESS_KEYWORDS.forEach(kw => { if (lower.includes(kw)) increase += 10; });
+  DISTRESS_KEYWORDS.forEach(kw => { if (lower.includes(kw)) increase += 12; });
   return Math.min(95, increase);
 }
 
@@ -1573,42 +1559,41 @@ function removeTyping() {
   if (t) t.remove();
 }
 
-async function callClaudeAPI(userText) {
+async function getAIResponse(userText) {
+  // Add user message to history
   conversationHistory.push({ role: 'user', content: userText });
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-5-20251001',
-      max_tokens: 1000,
-      system: SYSTEM_PROMPT,
-      messages: conversationHistory
-    })
-  });
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: SYSTEM_PROMPT,
+        messages: conversationHistory
+      })
+    });
 
-  if (!response.ok) {
-    const errData = await response.json().catch(() => ({}));
-    throw new Error(errData?.error?.message || 'API error ' + response.status);
+    if (!response.ok) throw new Error('API error: ' + response.status);
+
+    const data = await response.json();
+    const aiText = data.content.map(b => b.text || '').join('');
+
+    // Add assistant reply to history so context is maintained
+    conversationHistory.push({ role: 'assistant', content: aiText });
+    return aiText;
+
+  } catch (err) {
+    console.error('MindBridge AI error:', err);
+    // Graceful fallback
+    return "I'm here with you. It sounds like you're going through something difficult — can you tell me a bit more about how you're feeling right now?";
   }
-
-  const data = await response.json();
-  const assistantText = data.content?.[0]?.text || "I'm here with you. Can you tell me more about what's going on?";
-
-  conversationHistory.push({ role: 'assistant', content: assistantText });
-  return assistantText;
 }
 
 async function sendMessage() {
   if (!currentUser) { openAuth('login'); return; }
-  if (isWaitingForReply) return;
-
   const input = document.getElementById('chat-input');
-  const sendBtn = document.querySelector('.chat-send');
   const text = input.value.trim();
   if (!text) return;
 
@@ -1616,40 +1601,28 @@ async function sendMessage() {
   appendMessage(text, 'user');
   input.value = '';
   input.disabled = true;
-  sendBtn.disabled = true;
-  isWaitingForReply = true;
+  document.querySelector('.chat-send').disabled = true;
 
   const riskInc = detectRisk(text);
   if (riskInc > 0) updateRisk(riskInc);
 
   showTyping();
 
-  try {
-    const reply = await callClaudeAPI(text);
-    removeTyping();
-    appendMessage(reply, 'bot');
-  } catch (err) {
-    removeTyping();
-    console.error('Claude API error:', err);
-    // Show user-friendly error with the actual message
-    const errMsg = err.message || '';
-    if (errMsg.includes('401') || errMsg.toLowerCase().includes('auth')) {
-      appendMessage("⚠️ Authentication error — please make sure your API key is set up correctly.", 'bot');
-    } else if (errMsg.includes('429') || errMsg.toLowerCase().includes('rate')) {
-      appendMessage("⏳ I'm getting a lot of messages right now. Please wait a moment and try again.", 'bot');
-    } else if (errMsg.toLowerCase().includes('cors') || errMsg.toLowerCase().includes('network') || errMsg.toLowerCase().includes('failed to fetch')) {
-      appendMessage("🌐 Connection issue — this app needs to be opened from the Claude.ai artifacts environment to work properly.", 'bot');
-    } else {
-      appendMessage("I'm having a moment of trouble connecting. Please try sending your message again.", 'bot');
-    }
-    // Restore the user's message so they don't lose it
-    input.value = text;
-  } finally {
-    input.disabled = false;
-    sendBtn.disabled = false;
-    isWaitingForReply = false;
-    input.focus();
+  const reply = await getAIResponse(text);
+
+  removeTyping();
+  appendMessage(reply, 'bot');
+
+  // Show crisis resource widget if high distress after several messages
+  if (riskScore > 60 && messageCount >= 3) {
+    setTimeout(() => {
+      appendMessage("🧘 <strong>Grounding technique:</strong> Try the 5-4-3-2-1 method — name 5 things you can see, 4 you can touch, 3 you can hear, 2 you can smell, 1 you can taste. This can help anchor you to the present moment.", 'bot');
+    }, 1200);
   }
+
+  input.disabled = false;
+  document.querySelector('.chat-send').disabled = false;
+  input.focus();
 }
 
 document.getElementById('chat-input').addEventListener('keypress', e => {
